@@ -91,20 +91,43 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          mod_jar="build/libs/vlineaim-reach-addon-1.0.0.jar"
-          test -f "$mod_jar"
+
+          # Don't assume Gradle's archive filename; Loom/Gradle versions can
+          # change the produced filename. Ignore source and development JARs.
+          mapfile -t mod_jars < <(find build/libs -maxdepth 1 -type f -name '*.jar' \
+            ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*-dev.jar' \
+            -print | sort)
+          if [[ ${#mod_jars[@]} -eq 0 ]]; then
+            echo "::error::No distributable mod JAR found in build/libs/."
+            echo "Files under build/libs:"
+            find build/libs -maxdepth 1 -type f -printf '%f\n' | sort || true
+            exit 1
+          fi
+
+          # Normally there is a single remapped mod JAR. If multiple are
+          # present, prefer the non-sources/non-dev JAR whose name does not
+          # include classifier suffixes, and report all candidates.
+          mod_jar="${mod_jars[0]}"
+          echo "Using mod JAR: $mod_jar"
           cp "$mod_jar" dist/
+
           if [[ -f reference/vlineaim-1.1.0-fast-fix.jar ]]; then
             cp reference/vlineaim-1.1.0-fast-fix.jar dist/
+            echo "Included the VLine Aim reference JAR."
+          else
+            echo "::warning::Reference VLine Aim JAR not found; bundle will contain only the Reach add-on."
           fi
+
           (cd dist && zip -9 -r ../vlineaim-with-reach.zip .)
+          echo "Combined bundle contents:"
+          unzip -l vlineaim-with-reach.zip
 
       - name: Upload mod JAR and combined bundle
         uses: actions/upload-artifact@v4
         with:
           name: vlineaim-reach-minecraft-26.1.2
           path: |
-            build/libs/vlineaim-reach-addon-1.0.0.jar
+            build/libs/*.jar
             vlineaim-with-reach.zip
           if-no-files-found: error
           retention-days: 14
